@@ -7,57 +7,56 @@ const port = process.env.PORT || 3001;
 app.use(cors());
 app.use(express.json());
 
-// Conexión a la base de datos SQLite (se crea si no existe)
-const db = new sqlite3.Database('votos.db');
+// Crear o abrir la base de datos
+const db = new sqlite3.Database('./votos.db');
 
-// Crear tabla si no existe
+// Crear la tabla si no existe
 db.serialize(() => {
   db.run(`CREATE TABLE IF NOT EXISTS votos (
     id INTEGER PRIMARY KEY,
-    cantidad INTEGER DEFAULT 0
+    cantidad INTEGER
   )`);
 
-  // Insertar los 5 candidatos si no existen
+  // Inicializar con 5 candidatos (id del 1 al 5)
   for (let i = 1; i <= 5; i++) {
-    db.get("SELECT * FROM votos WHERE id = ?", [i], (err, row) => {
-      if (!row) {
-        db.run("INSERT INTO votos (id, cantidad) VALUES (?, 0)", [i]);
-      }
-    });
+    db.run(
+      `INSERT OR IGNORE INTO votos (id, cantidad) VALUES (?, ?)`,
+      [i, 0]
+    );
   }
 });
 
-// Obtener los votos
+// Obtener votos
 app.get('/votos', (req, res) => {
-  db.all("SELECT * FROM votos", (err, rows) => {
+  db.all('SELECT * FROM votos', (err, rows) => {
     if (err) {
-      console.error(err);
-      return res.sendStatus(500);
+      return res.status(500).json({ error: err.message });
     }
-    const resultados = {};
+    const resultado = {};
     rows.forEach(row => {
-      resultados[row.id] = row.cantidad;
+      resultado[row.id] = row.cantidad;
     });
-    res.json(resultados);
+    res.json(resultado);
   });
 });
 
-// Registrar un voto
+// Votar
 app.post('/votar', (req, res) => {
   const { id } = req.body;
-  db.get("SELECT * FROM votos WHERE id = ?", [id], (err, row) => {
-    if (row) {
-      db.run("UPDATE votos SET cantidad = cantidad + 1 WHERE id = ?", [id], (err2) => {
-        if (err2) {
-          console.error(err2);
-          return res.sendStatus(500);
-        }
-        res.sendStatus(200);
-      });
-    } else {
-      res.sendStatus(400);
+  if (!id || id < 1 || id > 5) {
+    return res.status(400).json({ error: 'ID inválido' });
+  }
+
+  db.run(
+    'UPDATE votos SET cantidad = cantidad + 1 WHERE id = ?',
+    [id],
+    function (err) {
+      if (err) {
+        return res.status(500).json({ error: err.message });
+      }
+      res.sendStatus(200);
     }
-  });
+  );
 });
 
 app.listen(port, () => {
