@@ -1,49 +1,54 @@
 const express = require('express');
 const cors = require('cors');
+const sqlite3 = require('sqlite3').verbose();
+const path = require('path');
+
 const app = express();
 const port = process.env.PORT || 3001;
 
-// Middleware
 app.use(cors());
 app.use(express.json());
 
-// Registro de votos
-const votos = {
-  1: 0,
-  2: 0,
-  3: 0,
-  4: 0,
-  5: 0
-};
+// Conexión a la base de datos SQLite
+const dbPath = path.resolve(__dirname, 'votos.db');
+const db = new sqlite3.Database(dbPath);
 
-// Registro de IPs que ya votaron
-const ipVotantes = new Set();
+// Crear tabla si no existe
+db.serialize(() => {
+  db.run(`
+    CREATE TABLE IF NOT EXISTS votos (
+      id INTEGER PRIMARY KEY,
+      cantidad INTEGER DEFAULT 0
+    )
+  `);
 
-// Ruta para ver los votos
+  // Asegurarse de que existan los 5 candidatos (1 al 5)
+  for (let i = 1; i <= 5; i++) {
+    db.run(`INSERT OR IGNORE INTO votos (id, cantidad) VALUES (?, 0)`, [i]);
+  }
+});
+
+// Ruta para obtener los votos
 app.get('/votos', (req, res) => {
-  res.json(votos);
+  db.all(`SELECT id, cantidad FROM votos`, (err, rows) => {
+    if (err) return res.status(500).json({ error: err.message });
+    const resultados = {};
+    rows.forEach(row => {
+      resultados[row.id] = row.cantidad;
+    });
+    res.json(resultados);
+  });
 });
 
-// Ruta para votar
+// Ruta para registrar un voto
 app.post('/votar', (req, res) => {
-  const ip = req.ip; // IP del votante
-
-  if (ipVotantes.has(ip)) {
-    // Si ya votó desde esta IP
-    return res.status(403).json({ mensaje: 'Ya has votado desde esta IP.' });
-  }
-
   const { id } = req.body;
-  if (votos.hasOwnProperty(id)) {
-    votos[id]++;
-    ipVotantes.add(ip); // Guarda la IP
-    return res.sendStatus(200);
-  }
-
-  res.sendStatus(400);
+  db.run(`UPDATE votos SET cantidad = cantidad + 1 WHERE id = ?`, [id], function (err) {
+    if (err || this.changes === 0) return res.sendStatus(400);
+    res.sendStatus(200);
+  });
 });
 
-// Iniciar servidor
 app.listen(port, () => {
   console.log(`Servidor corriendo en puerto ${port}`);
 });
